@@ -9,7 +9,7 @@ public class LotterySummaryDto
     public int QueCount { get; set; }
     public int WinnerCount { get; set; }
     public Lottery? CurrentUserLottery { get; set; }
-    public bool IsCurrentUserWinner => CurrentUserLottery is not null && CurrentUserLottery.IsWinner && CurrentUserLottery.LotteryDate != null && CurrentUserLottery.LotteryDate.Value.AddMinutes(TelegramMessages.ValidLotteryDateMinute) > DateTime.Now && CurrentUserLottery.SendToMainChannelDate is null;
+    public bool IsCurrentUserWinner => CurrentUserLottery is not null && CurrentUserLottery.IsWinner && CurrentUserLottery.LotteryDate != null && CurrentUserLottery.Confirmed && CurrentUserLottery.SendToMainChannelDate is null;
 
     public bool CanRegisterAgain
     {

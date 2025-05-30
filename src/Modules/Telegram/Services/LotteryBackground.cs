@@ -12,7 +12,7 @@ public class LotteryBackground(ILotteryRepo lotteryRepo, ITelegramBotClient bot)
     {
         var winners = await lotteryRepo.GetWinners();
 
-        var expiredUsers = winners.Where(LotteryConditions.ExpiredWinnerPredicate).ToList();
+        var expiredUsers = winners.Where(LotteryConditions.ExpiredWinner).ToList();
         if (expiredUsers.Count > 0)
         {
             foreach (var expiredUser in expiredUsers)
@@ -24,6 +24,8 @@ public class LotteryBackground(ILotteryRepo lotteryRepo, ITelegramBotClient bot)
                 
                 var expiredChat = await bot.GetChat(expiredUser.User!.ChatId!);
                 await SendMessages.SendAttemptOnLotteryAgainMessage(bot: bot, chat: expiredChat);
+                
+                winners.Remove(expiredUser);
             }
 
             try
@@ -36,55 +38,35 @@ public class LotteryBackground(ILotteryRepo lotteryRepo, ITelegramBotClient bot)
             }
         }
 
-        var expiredChannelVoices = await lotteryRepo.GetChannelMessages();
-        if (expiredChannelVoices.Messages.Count > 0)
+        var shearedList = winners.Where(LotteryConditions.PossibleWinner).OrderBy(x => x.LotteryDate).ToList();
+        if (shearedList.Count > 0)
         {
-            foreach (var expiredChannelVoice in expiredChannelVoices.Messages)
+            foreach (var needToShare in shearedList)
             {
-                if (expiredChannelVoice.ArchiveMessageId > 0)
+                var winnerChat = await bot.GetChat(needToShare.User!.ChatId!);
+                var summery = await lotteryRepo.GetSummary(needToShare.UserId);
+                if (summery is not null)
                 {
-                    var archiveChannel = await bot.GetChat(TelegramMessages.FocusArchiveChannel);
-                    await bot.DeleteMessage(chatId: archiveChannel.Id, expiredChannelVoice.ArchiveMessageId.Value);
-
-                    expiredChannelVoice.DeleteFromArchiveChannelDate = DateTime.Now;
-                    expiredChannelVoice.ModifiedDate = DateTime.Now;
+                    if (summery.InValidMainChannelMessagesCount >= TelegramMessages.LegalVoiceMessagesInMainChannel)
+                    {
+                        await DeleteChannel();
+                        summery = await lotteryRepo.GetSummary(needToShare.UserId);
+                    }
                 }
-                if (expiredChannelVoice.ChannelMessageId > 0 && expiredChannelVoices.MainChannelMessageCount > TelegramMessages.LegalVoiceMessagesInMainChannel)
+                
+                if (summery is not null && summery.IsNeedSendToChannels())
                 {
-                    var channel = await bot.GetChat(TelegramMessages.FocusChannel);
-                    var userChat = await bot.GetChat(expiredChannelVoice.User!.ChatId!);
-
-                    await HandleTelegramUpdates.SendToArchiveChannel(bot: bot, lotteryRepo: lotteryRepo, chat: userChat, expiredChannelVoice);
-
-                    await bot.DeleteMessage(chatId: channel.Id, expiredChannelVoice.ChannelMessageId.Value);
-
-                    expiredChannelVoice.DeleteFromMainChannelDate = DateTime.Now;
-                    expiredChannelVoice.ModifiedDate = DateTime.Now;
+                    await HandleTelegramUpdates.SendToMainChannel(bot: bot, lotteryRepo: lotteryRepo, chat: winnerChat, lottery: needToShare);
+                    break;
                 }
+                if (!needToShare.Confirmed)
+                {
+                    await SendMessages.SendConfirmVoiceMessage(bot: bot, chat: winnerChat);
+                }
+                
+                winners.Remove(needToShare);
             }
-
-            try
-            {
-                await lotteryRepo.SaveChangesAsync();
-            }
-            catch (Exception e)
-            {
-            }
-        }
-
-        var needToShareVoice = winners.Where(LotteryConditions.PossibleWinnerPredicate).MinBy(x => x.LotteryDate);
-        if (needToShareVoice is not null)
-        {
-            var winnerChat = await bot.GetChat(needToShareVoice.User!.ChatId!);
-            var summery = await lotteryRepo.GetSummary(needToShareVoice.UserId);
-            if (summery is not null && summery.IsNeedSendToChannels())
-            {
-                await HandleTelegramUpdates.SendToMainChannel(bot: bot, lotteryRepo: lotteryRepo, chat: winnerChat, lottery: needToShareVoice);
-            }
-            else if (!needToShareVoice.Confirmed)
-            {
-                await SendMessages.SendConfirmVoiceMessage(bot: bot, chat: winnerChat);
-            }
+            
         }
 
         var queueds = await lotteryRepo.GetQueueds();
@@ -113,6 +95,51 @@ public class LotteryBackground(ILotteryRepo lotteryRepo, ITelegramBotClient bot)
         }
 
         // await HandleTelegramUpdates.SendToMainChannel(bot: bot, lotteryRepo: lotteryRepo, chat: chat, lottery: winner);
+    }
+
+    private async Task DeleteChannel()
+    {
+        var expiredChannelVoices = await lotteryRepo.GetChannelMessages();
+        if (expiredChannelVoices.Messages.Count > 0)
+        {
+            foreach (var expiredChannelVoice in expiredChannelVoices.Messages)
+            {
+                if (expiredChannelVoice.ArchiveMessageId > 0)
+                {
+                    var archiveChannel = await bot.GetChat(TelegramMessages.FocusArchiveChannel);
+                    await bot.DeleteMessage(chatId: archiveChannel.Id, expiredChannelVoice.ArchiveMessageId.Value);
+
+                    expiredChannelVoice.DeleteFromArchiveChannelDate = DateTime.Now;
+                    expiredChannelVoice.ModifiedDate = DateTime.Now;
+                }
+                if (expiredChannelVoice.ChannelMessageId > 0)
+                {
+                    if (expiredChannelVoices.MainChannelMessageCount > TelegramMessages.LegalVoiceMessagesInMainChannel && expiredChannelVoices.WinnerCount == 0)
+                    {
+                        break;
+                    }
+
+                    var channel = await bot.GetChat(TelegramMessages.FocusChannel);
+                    var userChat = await bot.GetChat(expiredChannelVoice.User!.ChatId!);
+
+                    await HandleTelegramUpdates.SendToArchiveChannel(bot: bot, lotteryRepo: lotteryRepo, chat: userChat, expiredChannelVoice);
+
+                    await bot.DeleteMessage(chatId: channel.Id, expiredChannelVoice.ChannelMessageId.Value);
+
+                    expiredChannelVoice.DeleteFromMainChannelDate = DateTime.Now;
+                    expiredChannelVoice.ModifiedDate = DateTime.Now;
+                }
+            }
+
+            try
+            {
+                await lotteryRepo.SaveChangesAsync();
+            }
+            catch (Exception e)
+            {
+            }
+        }
+       
     }
 
 

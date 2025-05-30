@@ -62,19 +62,19 @@ public static class LotteryConditions
             return false;
         }
 
-        if (lotterySummary.CurrentUserLottery.LotteryDate.Value.AddMinutes(TelegramMessages.ValidLotteryDateMinute) < DateTime.Now)
-        {
-            return false;
-        }
-
         if (!lotterySummary.CurrentUserLottery.Confirmed)
         {
             return false;
         }
-
-        if (lotterySummary.InValidMainChannelMessagesCount > 0 && lotterySummary.MainChannelMessagesCount > 0)
+        
+        if (lotterySummary.MainChannelMessagesCount == 0)
         {
             return true;
+        }
+        
+        if (lotterySummary.WinnerCount == 0)
+        {
+            return false;
         }
 
         if (lotterySummary.MainChannelMessagesCount > 0)
@@ -82,7 +82,7 @@ public static class LotteryConditions
             return false;
         }
         
-        return true;
+        return false;
     }
 
     public static bool IsForwarded(this Message msg)
@@ -286,7 +286,7 @@ public static class LotteryConditions
         return queued.Count == 1;
     }
     
-    public static readonly Func<Lottery, bool> PossibleWinnerPredicate = x => x.VoiceMessageId != null && x.LotteryDate!.Value.AddMinutes(TelegramMessages.ValidLotteryDateMinute) > DateTime.Now;
+    public static readonly Func<Lottery, bool> PossibleWinner = x => x is { VoiceMessageId: not null, Confirmed: true };
 
-    public static readonly Func<Lottery, bool> ExpiredWinnerPredicate = x => x.VoiceMessageId == null && x.LotteryDate!.Value.AddMinutes(TelegramMessages.ValidLotteryDateMinute) < DateTime.Now && x.User != null && x.User.ChatId != null;
+    public static readonly Func<Lottery, bool> ExpiredWinner = x => (x.VoiceMessageId == null || !x.Confirmed) && x.LotteryDate!.Value.AddMinutes(TelegramMessages.ValidLotteryDateMinute) < DateTime.Now;
 }

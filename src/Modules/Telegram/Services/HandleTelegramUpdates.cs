@@ -475,7 +475,7 @@ public class HandleTelegramUpdates(ILotteryRepo lotteryRepo, UserManager<Identit
                 return true;
             }
 
-            if (lotterySummary.MainChannelMessagesCount > 0)
+            if (lotterySummary.MainChannelMessagesCount > 0 || lotterySummary.WinnerCount == 0)
             {
                 await SendMessages.SendWaitForMessageMessage(bot: bot, chat: chat, ct: ct);
                 return true;
